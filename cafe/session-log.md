@@ -576,11 +576,123 @@ Rate-limited after ~5 attempts. Need IP rotation or timing-based approach.
 | `/workspaces/cafe/js_dumps/app_qr_page.js` | QR page JS (119KB) — full checkin flow |
 | `/workspaces/cafe/js_dumps/chunk_*.js` | All downloaded JS chunks for reference |
 
-### 13.8 REMAINING VECTORS
+### 13.8 CHECKIN FLOW DEEP DIVE (PHASE 2: FALLBACKS)
 
-1. **Find cafe GPS coordinates** — reverse geolocate from outlet data, menu items, or location hints
-2. **Staff PIN brute-force via IP rotation** — use the 21 proxies to distribute attempts
-3. **HMAC key from server-side leak** — check `/api/white-label/config`, server headers, error messages
-4. **Order creation before pause** — try creating order on different endpoint format
-5. **IDOR via order move** — if we get staff access, move HACK-1 order to HACK-2 etc.
-6. **WebSocket event manipulation** — try sending events that trigger order status changes
+#### 13.8.1 TWO-STEP GEO-FENCE HANDSHAKE
+Reverse-engineered from `app_qr_page.js` (119KB):
+
+**Step 1** — POST `/api/qr/checkin?outlet=DEMOB` `{name:"arena-hack2"}`
+→ `{"geofenceMode":"hard","needLocation":true}` (200, NO Set-Cookie)
+Server acknowledges table exists but requires location. No session/token issued yet.
+
+**Step 2** — POST `/api/qr/checkin?outlet=DEMOB` `{name:"arena-hack2","located":true,"lat":X,"lng":Y,"accuracy":Z}`
+→ If coords OK: Sets `Set-Cookie: qr_sess=<JWT>` and returns table data
+→ If coords WRONG: `{"error":"Please come to the cafe to order.","geofence":"blocked","reason":"out_of_range"}` (403, NO cookie)
+→ If accuracy BAD: `{"geofence":"blocked","reason":"accuracy_too_low"}` (403)
+
+**Key behavior**: The server validates BOTH lat/lng AND accuracy. Accuracy < ~10m triggers `accuracy_too_low`.
+
+#### 13.8.2 BYPASS ATTEMPTS — ALL FAILED
+
+| Attempt | Command | Result |
+|---|---|---|
+| `located:true` (no coords) | POST with `{..., located:true}` | `reason:"no_location"` (403) |
+| `skipGeo:true` | Extra field in body | Ignored — same as Step 1 |
+| `bypassGeofence:true` | Extra field | Ignored |
+| `geofenceMode:"soft"` | Override in body | Ignored |
+| `geofenceMode:"none"` | Override in body | Ignored |
+| `lat:0,lng:0,accuracy:999999` | Null Island | `reason:"accuracy_too_low"` (403) |
+| `lat:28.61,lng:77.23,accuracy:-1` | Negative accuracy | `reason:"out_of_range"` (403) |
+| `force:true` / `bypass:true` | Extra fields | Ignored — same as Step 1 |
+| `__proto__` pollution | `{..., __proto__:{geofenceMode:"soft"}}` | Ignored |
+
+#### 13.8.3 HACK-1 CHECKIN (FOR COMPARISON)
+POST `/api/qr/checkin?outlet=DEMOA` `{name:"arena-hack1"}` → **Immediately sets cookie!**
+
+Response body: `{"id":"a0000001-0000-0000-0000-000000000001","zone":"Main","seats":4,"status":"occupied","qr_token":"arena-hack1","outlet_name":"Demo Diner — Test Alpha","geofence":"allow"}`
+
+**Key difference**: `geofence: "allow"` vs HACK-2 which has `geofence: "hard"` (inferred from `needLocation:true` + blocked response).
+
+#### 13.8.4 GPS COORDINATES ATTEMPTED
+
+| City/Region | Lat | Lng | Result |
+|---|---|---|---|
+| Delhi/Connaught Place | 28.6315 | 77.2167 | ❌ out_of_range |
+| Jaipur | 26.9124 | 75.7873 | ❌ out_of_range |
+| Bangalore | 12.9716 | 77.5946 | ❌ out_of_range |
+| Mumbai | 19.0760 | 72.8777 | ❌ out_of_range |
+| Goa | 15.4909 | 73.8278 | ❌ out_of_range |
+| Rishikesh | 30.0869 | 78.2676 | ❌ out_of_range |
+| Mysore | 12.2958 | 76.6394 | ❌ out_of_range |
+| Null Island | 0.0000 | 0.0000 | ❌ accuracy_too_low |
+| Server (AWS Mumbai) | 19.0760 | 72.8777 | ❌ out_of_range |
+
+### 13.9 STAFF API ENDPOINT INVENTORY
+From `chunk_192.js` (staff dashboard module):
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/auth/login` | POST | PIN-only: `{pin:"xxxx"}` — returns staff token + profile |
+| `/api/menu` | GET | Full menu (public anyway) |
+| `/api/tables` | GET | All tables with status |
+| `/api/tables/{id}` | PATCH | Update table status |
+| `/api/orders?active=true` | GET | Active orders |
+| `/api/orders/all?limit=N` | GET | All orders (paginated) |
+| `/api/orders` | POST | Create order |
+| `/api/orders/{id}/items` | POST | Add items to order |
+| `/api/orders/{id}/pay` | PATCH | Process payment |
+| `/api/orders/{id}/discount` | PATCH | Apply discount |
+| `/api/orders/{id}/complete` | PATCH | Complete order |
+| `/api/orders/{id}/move` | PATCH | **Move order between tables** (HACK-1 vector) |
+| `/api/items/{id}/status` | PATCH | Update item status |
+| `/api/items/{id}/reject` | PATCH | Reject item |
+| `/api/notifications` | GET | Notifications |
+| `/api/table-requests` | GET | Table requests |
+| `/api/kitchen-status` | GET | Kitchen status |
+
+### 13.10 GEO-FENCE HANDLER RECONSTRUCTION
+From `app_qr_page.js` line ~24224:
+
+```js
+// Initial checkin — no location
+POST /api/qr/checkin?outlet=DEMOB => {name: "arena-hack2"}
+→ {"geofenceMode":"hard","needLocation":true} (200)
+
+// If needLocation → get GPS from navigator.geolocation
+// navigator.geolocation.getCurrentPosition()
+// timeout: 8s, maxAge: 60s, enableHighAccuracy: true
+
+// Second checkin — with GPS
+POST /api/qr/checkin?outlet=DEMOB => {name: "arena-hack2", located: true, lat: X, lng: Y, accuracy: Z}
+→ If geofence blocked: {__geoblocked: true, reason: "no_location"|"accuracy_too_low"|"out_of_range"}
+→ If allowed: sets qr_sess cookie + returns table data
+
+// Error messages:
+// "no_location" → "Please turn on location / allow location access to order."
+// "accuracy_too_low" → same as above
+// "out_of_range" → "You seem to be away from the cafe - please come in and scan again to order."
+```
+
+### 13.11 KEY INSIGHTS
+
+1. **Server-side only HMAC key**: Token generation and validation happens entirely on the server (Next.js API routes). The client JS never sees the HMAC key — it's stored in environment variables or server config.
+
+2. **Two-step handshake is the challenge mechanism**: The geofence validation is a deliberate two-step process. "Break the handshake" likely means finding a way to bypass or manipulate the second step.
+
+3. **accuracy check proves real-world physics model**: The server checks accuracy < ~10m, suggesting it expects real GPS hardware (phone GPS), not API-spoofed coordinates.
+
+4. **Staff PIN is the most viable path**: With IP rotation across 21 proxies, brute-forcing 4-digit PINs (10,000 combinations) is feasible. Each proxy can try 5 PINs/minute before rate-limit. 21×5 = 105 attempts/minute → ~95 minutes for full enumeration.
+
+5. **Order move endpoint is HACK-1 solution**: If we get staff access, `/api/orders/{id}/move` can move HACK-1's order to another table, or complete/status-flip existing orders.
+
+6. **QR token cookie is auto-set on successful checkin**: No need to create tokens client-side. The server generates and signs the JWT using its secret key.
+
+### 13.12 REMAINING VECTORS (UPDATED)
+
+1. **Staff PIN brute-force via IP rotation** (HIGHEST PRIORITY) — 21 proxies, 105 attempts/min, ~95 min for full 4-digit space
+2. **Geofence handshake manipulation** — try sending `needLocation: false`, `geofence_pass: true` or other override params
+3. **HMAC key from server-side leak** — check server headers, error messages, debug endpoints
+4. **Order creation via alternative endpoint** — try `/api/qr/order` with HACK-1 token on HACK-2 tableId (IDOR)
+5. **WebSocket event injection** — reconnect to ws with auth token, try sending order-manipulation messages
+6. **Find exact cafe GPS** — the "Vault" location might be themed in the code or menus
+7. **Race condition on checkin** — send concurrent checkin requests before geofence validates
