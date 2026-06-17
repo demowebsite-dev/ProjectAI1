@@ -1,0 +1,12 @@
+Sent: {'type': 'ping'}
+Sent: {'type': 'ping'} -> No response (Connection timed out)
+Sent: {'type': 'getStatus'}
+Sent: {'type': 'getStatus'} -> No response (Connection timed out)
+Sent: {'type': 'admin', 'action': 'resume'}
+Sent: {'type': 'admin', 'action': 'resume'} -> No response (Connection timed out)
+Sent: {'type': 'unpause'}
+Sent: {'type': 'unpause'} -> No response (Connection timed out)
+Sent: {'type': 'geofence', 'mode': 'off'}
+Sent: {'type': 'geofence', 'mode': 'off'} -> No response (Connection timed out)
+
+With token param - No response
