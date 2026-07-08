@@ -1,4 +1,0 @@
-/api/outlet/config -> 401
-/api/outlet/geofence -> 401
-/api/outlet/DEMOB/config -> 401
-/api/outlet/DEMOA/config -> 401
