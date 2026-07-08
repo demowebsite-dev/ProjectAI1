@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "leadfinder"
+version = "0.1.0"
+description = "LeadFinder AI – Find small businesses running Meta ads that need a website."
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.0.0",
+    "rich>=13.0.0",
+    "typer>=0.9.0",
+    "playwright>=1.40.0",
+    "scrapling>=0.1.0",
+    "phonenumbers>=8.13.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[project.scripts]
+leadfinder = "leadfinder.cli.main:app"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["leadfinder*"]
+
+[tool.pytest.ini_options]
+testpaths = ["leadfinder/tests"]
+asyncio_mode = "auto"
+log_cli = true
+log_cli_level = "WARNING"
