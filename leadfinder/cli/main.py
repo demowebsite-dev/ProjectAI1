@@ -22,6 +22,11 @@ from leadfinder.crawler.meta.country_codes import resolve_country_code
 from leadfinder.crawler.meta.searcher import search_meta_ads
 from leadfinder.utils.logger import logger
 from leadfinder.database.db import DatabaseManager
+from leadfinder.crawler.facebook.page import crawl_facebook_page
+from leadfinder.crawler.instagram.profile import crawl_instagram_profile
+from leadfinder.utils.scorer import calculate_score
+from leadfinder.exporters.csv import export_csv
+from leadfinder.exporters.txt import export_txt
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -186,31 +191,81 @@ def search(
     # ── Display results ────────────────────────────────────────────────────
     console.print(_build_ads_table(ads, title=f"Meta Ads Found ({len(ads)})"))
 
-    # ── Save to DB ─────────────────────────────────────────────────────────
+    # ── Save to DB & Enrich ─────────────────────────────────────────────────────────
     db = DatabaseManager()
     saved = 0
-    for ad in ads:
-        try:
-            db.insert_business(
-                {
-                    "name": ad.advertiser_name,
-                    "facebook": ad.advertiser_url,
-                    "cta": ad.cta,
-                    "country": country_code,
-                    "keyword": keyword,
-                }
-            )
-            saved += 1
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Could not save ad %r to DB: %s", ad.advertiser_name, exc)
+    enriched_leads = []
+    
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console,
+        transient=True,
+    ) as progress:
+        task = progress.add_task(f"Enriching {len(ads)} leads...", total=len(ads))
+        for ad in ads:
+            url = ad.advertiser_url
+            enriched_data = {}
+            if url:
+                try:
+                    if "facebook.com" in url:
+                        progress.update(task, description=f"Crawling FB: {ad.advertiser_name}")
+                        enriched_data = crawl_facebook_page(url, headless=True)
+                    elif "instagram.com" in url:
+                        progress.update(task, description=f"Crawling IG: {ad.advertiser_name}")
+                        enriched_data = crawl_instagram_profile(url, headless=True)
+                except Exception as exc:
+                    logger.warning("Failed to crawl %s: %s", url, exc)
+            
+            # Merge scraped data with base info
+            lead_data = {
+                "name": enriched_data.get("name") or ad.advertiser_name,
+                "facebook": url if url and "facebook.com" in url else None,
+                "instagram": url if url and "instagram.com" in url else None,
+                "cta": ad.cta,
+                "country": country_code,
+                "keyword": keyword,
+                "phone": enriched_data.get("phone"),
+                "whatsapp": enriched_data.get("whatsapp", False),
+                "website": enriched_data.get("website"),
+                "followers": enriched_data.get("followers"),
+            }
+            
+            # Filter checks
+            if phone_required and not lead_data["phone"]:
+                progress.advance(task)
+                continue
+            if whatsapp_required and not lead_data["whatsapp"]:
+                progress.advance(task)
+                continue
+            if followers_max is not None:
+                followers = lead_data["followers"]
+                if followers is not None and followers > followers_max:
+                    progress.advance(task)
+                    continue
+                    
+            lead_data["score"] = calculate_score(lead_data)
+            
+            try:
+                # Assuming insert_business returns the inserted ID, or we fetch it.
+                db.insert_business(lead_data)
+                enriched_leads.append(lead_data)
+                saved += 1
+            except Exception as exc:
+                logger.warning("Could not save ad %r to DB: %s", ad.advertiser_name, exc)
+            
+            progress.advance(task)
 
-    console.print(f"\n[green]✓[/green] Saved [bold]{saved}[/bold] advertisers to database.")
-    console.print(
-        "[dim]Next: run Milestone 3 (Facebook analysis) to enrich followers/phone/website data.[/dim]"
-    )
+    console.print(f"\n[green]✓[/green] Saved and enriched [bold]{saved}[/bold] advertisers in database.")
 
-    if export:
-        console.print(f"[dim]Export ({export.upper()}) will be available from Milestone 9+.[/dim]")
+    if export and enriched_leads:
+        export_format = export.lower()
+        filepath = f"leads_export.{export_format}"
+        if export_format == "csv":
+            export_csv(enriched_leads, filepath)
+        elif export_format == "txt":
+            export_txt(enriched_leads, filepath)
+        console.print(f"[green]✓[/green] Exported results to [bold]{filepath}[/bold]")
 
 
 @app.command(name="leads")
