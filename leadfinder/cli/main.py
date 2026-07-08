@@ -9,6 +9,7 @@ leadfinder leads     -- List leads already stored in the database
 from __future__ import annotations
 
 from typing import Optional
+import asyncio
 
 import typer
 from rich.console import Console
@@ -19,7 +20,7 @@ from rich import box
 
 from leadfinder.config.settings import settings
 from leadfinder.crawler.meta.country_codes import resolve_country_code
-from leadfinder.crawler.meta.searcher import search_meta_ads
+from leadfinder.providers.meta.provider import MetaProvider
 from leadfinder.utils.logger import logger
 from leadfinder.database.db import DatabaseManager
 from leadfinder.crawler.facebook.page import crawl_facebook_page
@@ -178,7 +179,8 @@ def search(
             total=None,
         )
         try:
-            ads = search_meta_ads(country, keyword, max_results=max_results)
+            provider = MetaProvider()
+            ads = asyncio.run(provider.search_ads(country, keyword, max_results=max_results))
         except Exception as exc:  # noqa: BLE001
             console.print(f"[red]✗ Meta Ads search failed: {exc}[/red]")
             logger.error("Meta Ads search error: %s", exc, exc_info=True)
