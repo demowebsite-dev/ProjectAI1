@@ -1,0 +1,68 @@
+leadfinder_ai
+├── ARCHITECTURE.md
+├── INSTALL.md
+├── README.md
+├── ROADMAP.md
+├── leadfinder
+│   ├── __init__.py
+│   ├── cli
+│   │   ├── __init__.py
+│   │   └── main.py
+│   ├── config
+│   │   ├── __init__.py
+│   │   ├── selectors.py
+│   │   └── settings.py
+│   ├── crawler
+│   │   ├── __init__.py
+│   │   ├── facebook
+│   │   │   ├── __init__.py
+│   │   │   └── page.py
+│   │   ├── instagram
+│   │   │   ├── __init__.py
+│   │   │   └── profile.py
+│   │   └── meta
+│   │       ├── __init__.py
+│   │       ├── country_codes.py
+│   │       ├── parser.py
+│   │       └── searcher.py
+│   ├── database
+│   │   ├── __init__.py
+│   │   └── db.py
+│   ├── exporters
+│   │   ├── __init__.py
+│   │   ├── csv.py
+│   │   └── txt.py
+│   ├── models
+│   │   ├── __init__.py
+│   │   ├── ad_result.py
+│   │   └── business.py
+│   ├── parser
+│   │   ├── __init__.py
+│   │   ├── followers.py
+│   │   ├── phone.py
+│   │   ├── website.py
+│   │   └── whatsapp.py
+│   ├── tests
+│   │   ├── __init__.py
+│   │   ├── conftest.py
+│   │   ├── fixtures
+│   │   │   ├── facebook_page_sample.html
+│   │   │   ├── instagram_profile_sample.html
+│   │   │   └── meta_ads_sample.html
+│   │   ├── test_milestone1.py
+│   │   ├── test_milestone10.py
+│   │   ├── test_milestone2.py
+│   │   ├── test_milestone3.py
+│   │   ├── test_milestone4.py
+│   │   ├── test_milestone5.py
+│   │   ├── test_milestone6.py
+│   │   ├── test_milestone7.py
+│   │   ├── test_milestone8.py
+│   │   └── test_milestone9.py
+│   └── utils
+│       ├── __init__.py
+│       ├── logger.py
+│       ├── retry.py
+│       └── scorer.py
+├── pyproject.toml
+└── requirements.txt
